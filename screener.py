@@ -320,6 +320,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         action="store_true",
         help="Enable verbose logging",
     )
+    parser.add_argument(
+        "--verify-ssl",
+        action="store_true",
+        help="Enforce SSL/TLS certificate verification (disabled by default)",
+    )
     return parser.parse_args(argv)
 
 
@@ -428,11 +433,13 @@ async def capture_screenshot(
     timeout: float,
     semaphore: asyncio.Semaphore,
     user_agent: str,
+    ignore_https_errors: bool,
 ) -> Optional[str]:
     async with semaphore:
         context = await browser.new_context(
             viewport={"width": 1280, "height": 720},
             user_agent=user_agent,
+            ignore_https_errors=ignore_https_errors,
         )
         page: Page = await context.new_page()
         try:
@@ -456,6 +463,7 @@ async def process_url(
     timeout: float,
     capture: bool,
     user_agent: str,
+    ignore_https_errors: bool,
 ) -> PageReport:
     normalised = normalise_url(url)
     response, fetch_error, elapsed = await fetch_metadata(client, normalised, timeout)
@@ -493,6 +501,7 @@ async def process_url(
             timeout,
             semaphore,
             user_agent,
+            ignore_https_errors,
         )
         if screenshot_error:
             screenshot_path = None
@@ -612,7 +621,18 @@ async def run(argv: Optional[Sequence[str]] = None) -> int:
     limits = httpx.Limits(max_connections=args.concurrency * 2, max_keepalive_connections=args.concurrency)
     timeout = httpx.Timeout(args.timeout)
 
-    async with httpx.AsyncClient(follow_redirects=True, headers=headers, limits=limits, timeout=timeout) as client:
+    if not args.verify_ssl:
+        LOGGER.warning(
+            "TLS certificate verification is disabled. Connections will proceed without validating certificates."
+        )
+
+    async with httpx.AsyncClient(
+        follow_redirects=True,
+        headers=headers,
+        limits=limits,
+        timeout=timeout,
+        verify=args.verify_ssl,
+    ) as client:
         browser: Optional[Browser] = None
         semaphore: Optional[asyncio.Semaphore] = None
         if not args.no_screenshots:
@@ -633,6 +653,7 @@ async def run(argv: Optional[Sequence[str]] = None) -> int:
                     args.timeout,
                     not args.no_screenshots,
                     args.user_agent,
+                    ignore_https_errors=not args.verify_ssl,
                 )
                 for url in urls
             ]
