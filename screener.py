@@ -276,8 +276,8 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("report.html"),
-        help="Destination HTML report path (default: ./report.html)",
+        default=Path("report"),
+        help="Directory to write report.html and screenshots/ (default: ./report)",
     )
     parser.add_argument(
         "--concurrency",
@@ -561,7 +561,6 @@ def render_report(
         results=safe_reports,
     )
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(html, encoding="utf-8")
 
 
@@ -599,8 +598,10 @@ async def run(argv: Optional[Sequence[str]] = None) -> int:
 
     LOGGER.info("Processing %d URLs with concurrency=%d", len(urls), args.concurrency)
 
-    output_path = args.output.resolve()
-    screenshot_dir = output_path.parent / "screenshots"
+    output_dir = args.output.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / "report.html"
+    screenshot_dir = output_dir / "screenshots"
 
     headers = {
         "user-agent": args.user_agent,
@@ -648,7 +649,7 @@ async def run(argv: Optional[Sequence[str]] = None) -> int:
 
     failed_urls = [r.original_url for r in reports if r.has_error]
     if failed_urls:
-        fail_file = output_path.parent / "failed_urls.txt"
+        fail_file = output_dir / "failed_urls.txt"
         fail_file.write_text("\n".join(failed_urls) + "\n", encoding="utf-8")
         LOGGER.warning("%d URLs failed. See %s", len(failed_urls), fail_file)
 
