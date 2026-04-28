@@ -1,0 +1,9 @@
+version: "3.9"
+
+services:
+  screener:
+    build: .
+    volumes:
+      - ./urls.txt:/app/urls.txt:ro
+      - ./reports:/app/reports
+    command: ["urls.txt", "--output", "reports"]
