@@ -443,10 +443,12 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Capture screenshots and headers for a list of URLs.\n\n"
-            "Both positional URL_FILE and --output accept absolute paths, which is "
-            "particularly useful when running inside Docker where host directories must "
-            "be bind-mounted to the same path inside the container, e.g.:\n\n"
-            "  docker run --rm -v /tmp:/tmp screener /tmp/urls.txt --output /tmp/report"
+            "URL_FILE and --output accept relative or absolute paths.\n\n"
+            "Docker quick-start (relative to your current directory):\n\n"
+            "  docker run --rm -v \"$PWD:/work\" screener ./urls.txt --output ./new_report\n\n"
+            "The container mounts your current directory at /work, so relative paths like\n"
+            "./urls.txt and ./new_report refer to files in your host working directory.\n"
+            "After the run, ./new_report/report.html will be on your host machine."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -454,9 +456,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         "url_file",
         type=Path,
         help=(
-            "Absolute or relative path to a text file containing one URL per line. "
-            "When running in Docker, bind-mount the parent directory so the container "
-            "can read the file (e.g. -v /tmp:/tmp)."
+            "Relative or absolute path to a text file containing one URL per line. "
+            "In Docker, relative paths resolve from the bind-mounted /work directory "
+            "(i.e. your host current working directory)."
         ),
     )
     parser.add_argument(
@@ -464,11 +466,11 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         type=Path,
         default=Path("report"),
         help=(
-            "Absolute or relative directory for report.html and screenshots/. "
+            "Relative or absolute directory for report.html and screenshots/. "
             "Created automatically if it does not exist. "
-            "In Docker, bind-mount this directory so the output is available on the host "
-            "(e.g. -v /tmp:/tmp and --output /tmp/report). "
-            "Default: ./report"
+            "In Docker, relative paths resolve from the bind-mounted /work directory "
+            "(i.e. your host current working directory), so --output ./new_report "
+            "will create ./new_report on the host. Default: ./report"
         ),
     )
     parser.add_argument(

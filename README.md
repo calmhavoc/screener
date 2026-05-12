@@ -21,8 +21,8 @@ produces an HTML report summarising the results.
 pip install -r requirements.txt
 playwright install chromium
 
-# Run — paths can be relative or absolute
-python screener.py /tmp/test_urls.txt --output /tmp/new_report
+# Run with paths relative to your current directory
+python screener.py ./urls.txt --output ./new_report
 ```
 
 ---
@@ -35,50 +35,29 @@ python screener.py /tmp/test_urls.txt --output /tmp/new_report
 docker build -t screener .
 ```
 
-#### How paths work in Docker
+#### How it works
 
-`url_file` and `--output` are **container-internal** paths.
-To read files from the host or write output back to the host you must **bind-mount**
-the relevant host directories into the container at the same absolute paths.
-The simplest pattern is to mount a shared parent directory:
+The container sets its working directory to `/work`.
+When you mount your current directory at `/work`, relative paths like
+`./urls.txt` and `./new_report` resolve directly to files in your host
+working directory — so the output appears locally after the container exits.
 
-```bash
-docker run --rm \
-  -v HOST_DIR:CONTAINER_DIR \
-  screener CONTAINER_PATH_TO_URLS --output CONTAINER_PATH_FOR_OUTPUT
-```
-
-#### Quick example (using `/tmp`)
+#### Run (current-directory paths)
 
 ```bash
-# Place your URLs file on the host
-echo "https://example.com" > /tmp/test_urls.txt
+# urls.txt must exist in your current directory
+docker run --rm -v "$PWD:/work" screener ./urls.txt --output ./new_report
 
-# Run — mount /tmp into the container so both the input and output live there
-docker run --rm \
-  -v /tmp:/tmp \
-  screener /tmp/test_urls.txt --output /tmp/new_report
-
-# The report is now on your host at /tmp/new_report/report.html
+# The report is now on your host at ./new_report/report.html
 ```
 
-#### Generic pattern for any paths
+#### How paths work
 
-```bash
-# If your URLs file lives at /path/to/urls.txt and you want output at /path/to/output:
-docker run --rm \
-  -v /path/to:/path/to \
-  screener /path/to/urls.txt --output /path/to/output
-```
-
-Or mount input and output directories separately (more restrictive):
-
-```bash
-docker run --rm \
-  -v /path/to/urls_dir:/path/to/urls_dir:ro \
-  -v /path/to/output_dir:/path/to/output_dir \
-  screener /path/to/urls_dir/urls.txt --output /path/to/output_dir/report
-```
+| What you pass | What it resolves to (inside container) | Appears on host at |
+|---|---|---|
+| `./urls.txt` | `/work/urls.txt` | `$PWD/urls.txt` |
+| `./new_report` | `/work/new_report` | `$PWD/new_report` |
+| `/abs/path/file.txt` | `/abs/path/file.txt` | requires matching `-v /abs/path:/abs/path` |
 
 #### Common options
 
@@ -96,21 +75,17 @@ docker run --rm \
 
 ```bash
 # Metadata only (faster, no Playwright browser needed)
-docker run --rm \
-  -v /tmp:/tmp \
-  screener /tmp/test_urls.txt --output /tmp/new_report --no-screenshots
+docker run --rm -v "$PWD:/work" screener ./urls.txt --output ./new_report --no-screenshots
 
-# Higher concurrency + JSON output
-docker run --rm \
-  -v /tmp:/tmp \
-  screener /tmp/test_urls.txt --output /tmp/new_report \
-  --concurrency 10 --json /tmp/new_report/results.json
+# Higher concurrency + JSON output saved next to the report
+docker run --rm -v "$PWD:/work" screener ./urls.txt --output ./new_report \
+  --concurrency 10 --json ./new_report/results.json
 
-# Process only the first 20 URLs with verbose logging
-docker run --rm \
-  -v /tmp:/tmp \
-  screener /tmp/test_urls.txt --output /tmp/new_report \
-  --max-urls 20 --verbose
+# Process only the first 20 URLs
+docker run --rm -v "$PWD:/work" screener ./urls.txt --output ./new_report --max-urls 20
+
+# Use an absolute path for both input and output
+docker run --rm -v /data:/data screener /data/urls.txt --output /data/report
 ```
 
 _Tested with Python 3.9+_
