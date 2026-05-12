@@ -75,6 +75,66 @@ HTML_TEMPLATE = """
         padding: 1rem;
         box-shadow: 0 6px 20px rgba(0,0,0,0.06);
     }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 1rem;
+    }
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        flex: 1 1 160px;
+    }
+    .filter-group label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .filter-group select {
+        padding: 0.45rem 0.7rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: #f8fafc;
+        color: #111;
+        cursor: pointer;
+    }
+    .filter-group select:focus {
+        outline: 2px solid #2a5298;
+        outline-offset: 1px;
+    }
+    .filter-actions {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.75rem;
+    }
+    #reset-btn {
+        padding: 0.47rem 1rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #f1f5f9;
+        color: #475569;
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+    #reset-btn:hover { background: #e2e8f0; }
+    #visible-count {
+        font-size: 0.9rem;
+        color: #475569;
+        white-space: nowrap;
+    }
+
     .grid {
         display: grid;
         grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
@@ -89,6 +149,7 @@ HTML_TEMPLATE = """
         flex-direction: column;
         min-height: 100%;
     }
+    .result[hidden] { display: none !important; }
     .result header {
         background: none;
         color: inherit;
@@ -180,9 +241,17 @@ HTML_TEMPLATE = """
         border-radius: 0 10px 10px 0;
         margin: 1rem 1.2rem 1.2rem;
     }
+    .no-results {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 2rem;
+        color: #64748b;
+        font-size: 1rem;
+    }
     @media (max-width: 720px) {
         header { padding: 1.5rem 1rem; }
         main { padding: 1rem; }
+        .filter-bar { flex-direction: column; }
     }
   </style>
 </head>
@@ -211,14 +280,62 @@ HTML_TEMPLATE = """
       </div>
     </section>
 
-    <section class="grid">
+    <!-- ── Filter bar ── -->
+    <div class="filter-bar" role="search" aria-label="Filter results">
+      <div class="filter-group">
+        <label for="filter-status">Status code</label>
+        <select id="filter-status">
+          <option value="">All statuses</option>
+          {% for code in status_codes %}
+            <option value="{{ code }}">{{ code }}</option>
+          {% endfor %}
+          {% if has_errors %}
+            <option value="error">Error / no response</option>
+          {% endif %}
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-server">Server</label>
+        <select id="filter-server">
+          <option value="">All servers</option>
+          {% for srv in servers %}
+            <option value="{{ srv }}">{{ srv }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="filter-group">
+        <label for="filter-tech">Technology</label>
+        <select id="filter-tech">
+          <option value="">All technologies</option>
+          {% for tech in all_technologies %}
+            <option value="{{ tech }}">{{ tech }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div class="filter-actions">
+        <button id="reset-btn" type="button">Reset</button>
+        <span id="visible-count"></span>
+      </div>
+    </div>
+    <!-- ── / Filter bar ── -->
+
+    <section class="grid" id="results-grid">
     {% for item in results %}
-      <article class="result" id="card-{{ loop.index }}">
+      <article
+        class="result"
+        id="card-{{ loop.index }}"
+        data-status="{{ item.status if item.status else 'error' }}"
+        data-server="{{ item.server | lower }}"
+        data-technologies="{{ item.technologies | join(',') | lower }}"
+      >
         <header>
           <h2><a href="{{ item.final_url or item.normalised_url }}" target="_blank">{{ item.original_url }}</a></h2>
           <div class="status">
             {% if item.status %}<span>Status {{ item.status }}</span>{% endif %}
-            {% if item.response_time %}⏱ {{ '%.2f'|format(item.response_time) }} s{% endif %}
+            {% if item.response_time %}&#x23F1; {{ '%.2f'|format(item.response_time) }} s{% endif %}
           </div>
           <ul class="meta-list">
             {% if item.final_url and item.final_url != item.normalised_url %}<li>Final URL: {{ item.final_url }}</li>{% endif %}
@@ -233,7 +350,7 @@ HTML_TEMPLATE = """
         {% endif %}
 
         {% if item.error %}
-          <div class="error">⚠️ {{ item.error }}</div>
+          <div class="error">&#x26A0;&#xFE0F; {{ item.error }}</div>
         {% endif %}
 
         <div class="details">
@@ -263,21 +380,96 @@ HTML_TEMPLATE = """
         </div>
       </article>
     {% endfor %}
+      <p class="no-results" id="no-results" hidden>No results match the selected filters.</p>
     </section>
   </main>
+
+  <script>
+    (function () {
+      var selStatus = document.getElementById('filter-status');
+      var selServer = document.getElementById('filter-server');
+      var selTech   = document.getElementById('filter-tech');
+      var resetBtn  = document.getElementById('reset-btn');
+      var countEl   = document.getElementById('visible-count');
+      var noResults = document.getElementById('no-results');
+      var cards     = Array.from(document.querySelectorAll('.result[id^="card-"]'));
+
+      function applyFilters() {
+        var status = selStatus.value;
+        var server = selServer.value.toLowerCase();
+        var tech   = selTech.value.toLowerCase();
+        var visible = 0;
+
+        cards.forEach(function (card) {
+          var cardStatus = card.dataset.status;
+          var cardServer = card.dataset.server;
+          var cardTechs  = card.dataset.technologies;
+
+          var match = true;
+          if (status && cardStatus !== status) match = false;
+          if (server && cardServer.indexOf(server) === -1) match = false;
+          if (tech   && cardTechs.indexOf(tech)   === -1) match = false;
+
+          card.hidden = !match;
+          if (match) visible++;
+        });
+
+        countEl.textContent = visible + ' of ' + cards.length + ' shown';
+        noResults.hidden = visible > 0;
+      }
+
+      function resetFilters() {
+        selStatus.value = '';
+        selServer.value = '';
+        selTech.value   = '';
+        applyFilters();
+      }
+
+      selStatus.addEventListener('change', applyFilters);
+      selServer.addEventListener('change', applyFilters);
+      selTech.addEventListener('change', applyFilters);
+      resetBtn.addEventListener('click', resetFilters);
+
+      // Initialise count on load
+      applyFilters();
+    })();
+  </script>
 </body>
 </html>
 """
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Capture screenshots and headers for a list of URLs.")
-    parser.add_argument("url_file", type=Path, help="Path to a text file containing one URL per line")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Capture screenshots and headers for a list of URLs.\n\n"
+            "Both positional URL_FILE and --output accept absolute paths, which is "
+            "particularly useful when running inside Docker where host directories must "
+            "be bind-mounted to the same path inside the container, e.g.:\n\n"
+            "  docker run --rm -v /tmp:/tmp screener /tmp/urls.txt --output /tmp/report"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "url_file",
+        type=Path,
+        help=(
+            "Absolute or relative path to a text file containing one URL per line. "
+            "When running in Docker, bind-mount the parent directory so the container "
+            "can read the file (e.g. -v /tmp:/tmp)."
+        ),
+    )
     parser.add_argument(
         "--output",
         type=Path,
         default=Path("report"),
-        help="Directory to write report.html and screenshots/ (default: ./report)",
+        help=(
+            "Absolute or relative directory for report.html and screenshots/. "
+            "Created automatically if it does not exist. "
+            "In Docker, bind-mount this directory so the output is available on the host "
+            "(e.g. -v /tmp:/tmp and --output /tmp/report). "
+            "Default: ./report"
+        ),
     )
     parser.add_argument(
         "--concurrency",
@@ -332,7 +524,13 @@ def load_urls(path: Path, limit: Optional[int] = None) -> List[str]:
     """Load URLs from a file, ignoring empty lines and comments."""
 
     if not path.exists():
-        raise FileNotFoundError(f"URL file {path} does not exist")
+        hint = (
+            f"\nHint: if you are running inside Docker, make sure the host directory "
+            f"containing '{path}' is bind-mounted into the container at the same path.\n"
+            f"  Example: docker run --rm -v {path.parent}:{path.parent}:ro screener "
+            f"{path} --output <OUTPUT_DIR>"
+        )
+        raise FileNotFoundError(f"URL file '{path}' does not exist.{hint}")
 
     urls: List[str] = []
     with path.open("r", encoding="utf-8") as handle:
@@ -535,6 +733,22 @@ def render_report(
     response_times = [r.response_time for r in reports if r.response_time]
     avg_response_time = sum(response_times) / len(response_times) if response_times else 0.0
 
+    # ── Collect filter option sets ──────────────────────────────────────────
+    status_codes: List[str] = sorted(
+        {str(r.status) for r in reports if r.status is not None},
+        key=lambda s: int(s),
+    )
+    servers: List[str] = sorted(
+        {r.headers.get("server", "").strip() for r in reports if r.headers.get("server", "").strip()},
+        key=str.lower,
+    )
+    all_technologies: List[str] = sorted(
+        {tech for r in reports for tech in r.technologies},
+        key=str.lower,
+    )
+    has_errors = any(r.has_error for r in reports)
+    # ────────────────────────────────────────────────────────────────────────
+
     safe_reports = []
     for report in reports:
         safe_headers = dict(sorted(report.headers.items()))
@@ -552,6 +766,8 @@ def render_report(
                 "status": report.status,
                 "response_time": report.response_time,
                 "headers": safe_headers,
+                # server header value exposed separately for the filter bar
+                "server": report.headers.get("server", ""),
                 "technologies": report.technologies,
                 "screenshot_path": str(screenshot_rel) if screenshot_rel else None,
                 "error": report.error,
@@ -568,6 +784,11 @@ def render_report(
         input_file=str(input_file),
         output_dir=str(output_path.parent.resolve()),
         results=safe_reports,
+        # filter option lists
+        status_codes=status_codes,
+        servers=servers,
+        all_technologies=all_technologies,
+        has_errors=has_errors,
     )
 
     output_path.write_text(html, encoding="utf-8")
