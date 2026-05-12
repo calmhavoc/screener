@@ -527,10 +527,11 @@ def load_urls(path: Path, limit: Optional[int] = None) -> List[str]:
 
     if not path.exists():
         hint = (
-            f"\nHint: if you are running inside Docker, make sure the host directory "
-            f"containing '{path}' is bind-mounted into the container at the same path.\n"
-            f"  Example: docker run --rm -v {path.parent}:{path.parent}:ro screener "
-            f"{path} --output <OUTPUT_DIR>"
+            "\nHint: if you are running inside Docker, your host current directory must "
+            "be bind-mounted at /work so the container can see local files.\n"
+            f"  docker run --rm -v \"$PWD:/work\" screener {path} --output ./new_report\n"
+            "\nRelative paths (e.g. ./urls.txt) resolve from /work inside the container, "
+            "which maps to the directory you mount with -v \"$PWD:/work\"."
         )
         raise FileNotFoundError(f"URL file '{path}' does not exist.{hint}")
 
