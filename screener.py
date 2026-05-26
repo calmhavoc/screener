@@ -20,6 +20,23 @@ from playwright.async_api import Browser, Page, async_playwright
 
 LOGGER = logging.getLogger("screener")
 
+# ── Retry / back-off for transient metadata-fetch failures ──────────
+MAX_METADATA_RETRIES = 3
+BASE_BACKOFF: float = 0.5  # first wait, doubles each retry
+
+# httpx exception types that indicate transient network problems.
+_RETRYABLE = (
+    httpx.TimeoutException,
+    httpx.NetworkError,
+    httpx.RemoteProtocolError,
+    httpx.TransportError,
+    httpx.ConnectError,
+    httpx.ReadError,
+    httpx.WriteError,
+    httpx.PoolTimeout,
+)
+# ─────────────────────────────────────────────────────────────────────
+
 
 @dataclass(slots=True)
 class PageReport:
@@ -615,16 +632,49 @@ async def fetch_metadata(
     client: httpx.AsyncClient,
     url: str,
     timeout: float,
+    semaphore: asyncio.Semaphore,
 ) -> tuple[Optional[httpx.Response], Optional[str], Optional[float]]:
+    """GET *url* with retry-and-backoff for transient failures.
+
+    The request is throttled by *semaphore* so that at most N metadata
+    fetches run concurrently.  Once an HTTP response is received
+    (even 4xx/5xx) the result is returned immediately – no retries for
+    application-level status codes.  Only network-level transient errors
+    (timeouts, connection resets, pool timeouts, etc.) trigger retries.
+    """
     loop = asyncio.get_running_loop()
     start = loop.time()
-    try:
-        response = await client.get(url, timeout=timeout)
-        elapsed = loop.time() - start
-        return response, None, elapsed
-    except Exception as exc:  # noqa: BLE001
-        elapsed = loop.time() - start
-        return None, str(exc), elapsed
+    last_exc: Optional[Exception] = None
+
+    for attempt in range(1, MAX_METADATA_RETRIES + 1):
+        try:
+            async with semaphore:
+                response = await client.get(url, timeout=timeout)
+            elapsed = loop.time() - start
+            LOGGER.debug("GET %s → %d (attempt %d/%d)", url, response.status_code, attempt, MAX_METADATA_RETRIES)
+            return response, None, elapsed
+        except _RETRYABLE as exc:
+            last_exc = exc
+            if attempt < MAX_METADATA_RETRIES:
+                delay = BASE_BACKOFF * (2 ** (attempt - 1))
+                LOGGER.debug(
+                    "GET %s retryable error (attempt %d/%d): %s %s – retrying in %.1fs",
+                    url, attempt, MAX_METADATA_RETRIES, type(exc).__name__, exc, delay,
+                )
+                await asyncio.sleep(delay)
+            else:
+                LOGGER.debug(
+                    "GET %s failed after %d attempts: %s %s",
+                    url, MAX_METADATA_RETRIES, type(exc).__name__, exc,
+                )
+        except Exception as exc:  # noqa: BLE001 – non-retryable (e.g. programming errors)
+            elapsed = loop.time() - start
+            return None, f"{type(exc).__name__}: {exc}", elapsed
+
+    # All retries exhausted – include the last exception type & message
+    elapsed = loop.time() - start
+    assert last_exc is not None
+    return None, f"{type(last_exc).__name__}: {last_exc} (after {MAX_METADATA_RETRIES} attempts)", elapsed
 
 
 async def capture_screenshot(
@@ -658,8 +708,9 @@ async def capture_screenshot(
 async def process_url(
     url: str,
     client: httpx.AsyncClient,
+    http_semaphore: asyncio.Semaphore,
     browser: Optional[Browser],
-    semaphore: Optional[asyncio.Semaphore],
+    screenshot_semaphore: Optional[asyncio.Semaphore],
     screenshot_dir: Path,
     timeout: float,
     capture: bool,
@@ -667,7 +718,7 @@ async def process_url(
     ignore_https_errors: bool,
 ) -> PageReport:
     normalised = normalise_url(url)
-    response, fetch_error, elapsed = await fetch_metadata(client, normalised, timeout)
+    response, fetch_error, elapsed = await fetch_metadata(client, normalised, timeout, http_semaphore)
 
     headers: Dict[str, str] = {}
     technologies: List[str] = []
@@ -691,7 +742,7 @@ async def process_url(
 
     screenshot_path: Optional[Path] = None
     screenshot_error: Optional[str] = None
-    if capture and browser is not None and semaphore is not None and not fetch_error:
+    if capture and browser is not None and screenshot_semaphore is not None and not fetch_error:
         slug = slugify(final_url or normalised)
         screenshot_path = screenshot_dir / f"{slug}.png"
         screenshot_path.parent.mkdir(parents=True, exist_ok=True)
@@ -700,7 +751,7 @@ async def process_url(
             final_url or normalised,
             screenshot_path,
             timeout,
-            semaphore,
+            screenshot_semaphore,
             user_agent,
             ignore_https_errors,
         )
@@ -850,6 +901,12 @@ async def run(argv: Optional[Sequence[str]] = None) -> int:
             "TLS certificate verification is disabled. Connections will proceed without validating certificates."
         )
 
+    # Two separate semaphores so that the concurrency parameter caps both
+    # the number of simultaneous HTTP metadata fetches and the number of
+    # simultaneous browser screenshot sessions independently.
+    http_semaphore = asyncio.Semaphore(args.concurrency)
+    screenshot_semaphore: Optional[asyncio.Semaphore] = None
+
     async with httpx.AsyncClient(
         follow_redirects=True,
         headers=headers,
@@ -858,21 +915,20 @@ async def run(argv: Optional[Sequence[str]] = None) -> int:
         verify=args.verify_ssl,
     ) as client:
         browser: Optional[Browser] = None
-        semaphore: Optional[asyncio.Semaphore] = None
+        playwright = None
         if not args.no_screenshots:
             playwright = await async_playwright().start()
             browser = await playwright.chromium.launch(headless=True)
-            semaphore = asyncio.Semaphore(args.concurrency)
-        else:
-            playwright = None
+            screenshot_semaphore = asyncio.Semaphore(args.concurrency)
 
         try:
             tasks = [
                 process_url(
                     url,
                     client,
+                    http_semaphore,
                     browser,
-                    semaphore,
+                    screenshot_semaphore,
                     screenshot_dir,
                     args.timeout,
                     not args.no_screenshots,
