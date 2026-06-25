@@ -456,6 +456,643 @@ HTML_TEMPLATE = """
 """
 
 
+MAIN_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>URL Screener – Aggregate Dashboard</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        margin: 0;
+        background: #f5f7fb;
+        color: #111;
+    }
+    header {
+        background: linear-gradient(120deg, #1e3c72, #2a5298);
+        color: #fff;
+        padding: 2rem 1.5rem 1.5rem;
+    }
+    header h1 { margin: 0 0 0.5rem; font-size: 2rem; }
+    header .meta { font-size: 0.95rem; opacity: 0.85; }
+    main { padding: 1.5rem; }
+    .summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 1rem;
+        margin-bottom: 2rem;
+    }
+    .summary .card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 1rem;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+    }
+
+    /* ── Filter bar ── */
+    .filter-bar {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+        padding: 1rem 1.25rem;
+        margin-bottom: 1.5rem;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: flex-end;
+        gap: 1rem;
+    }
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        flex: 1 1 160px;
+    }
+    .filter-group label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #475569;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    .filter-group select {
+        padding: 0.45rem 0.7rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        font-size: 0.9rem;
+        background: #f8fafc;
+        color: #111;
+        cursor: pointer;
+    }
+    .filter-group select:focus {
+        outline: 2px solid #2a5298;
+        outline-offset: 1px;
+    }
+    .filter-actions {
+        display: flex;
+        align-items: flex-end;
+        gap: 0.75rem;
+    }
+    #reset-btn {
+        padding: 0.47rem 1rem;
+        border: 1px solid #cbd5e1;
+        border-radius: 8px;
+        background: #f1f5f9;
+        color: #475569;
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+    #reset-btn:hover { background: #e2e8f0; }
+    .refresh-btn {
+        padding: 0.47rem 1rem;
+        border: 1px solid #2a5298;
+        border-radius: 8px;
+        background: #2a5298;
+        color: #fff;
+        font-size: 0.9rem;
+        cursor: pointer;
+    }
+    .refresh-btn:hover { background: #1e3c72; }
+    #visible-count {
+        font-size: 0.9rem;
+        color: #475569;
+        white-space: nowrap;
+    }
+    .loading {
+        text-align: center;
+        padding: 3rem;
+        color: #64748b;
+        font-size: 1.1rem;
+    }
+    .loading .spinner {
+        display: inline-block;
+        width: 2rem;
+        height: 2rem;
+        border: 3px solid #e2e8f0;
+        border-top-color: #2a5298;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+        margin-bottom: 0.75rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+        gap: 1.5rem;
+    }
+    .result {
+        background: #fff;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+        display: flex;
+        flex-direction: column;
+        min-height: 100%;
+    }
+    .result[hidden] { display: none !important; }
+    .result header {
+        background: none;
+        color: inherit;
+        padding: 1.2rem 1.2rem 0.25rem;
+    }
+    .result header .report-badge {
+        display: inline-block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        background: #e0e7ff;
+        color: #3730a3;
+        padding: 0.15rem 0.55rem;
+        border-radius: 999px;
+        margin-bottom: 0.35rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+    }
+    .result header h2 {
+        font-size: 1.1rem;
+        margin: 0 0 0.35rem;
+        line-height: 1.4;
+        word-break: break-word;
+    }
+    .result header .status {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        font-size: 0.9rem;
+        color: #475569;
+    }
+    .result header .status span {
+        background: rgba(59, 130, 246, 0.12);
+        color: #1d4ed8;
+        padding: 0.2rem 0.5rem;
+        border-radius: 999px;
+    }
+    .meta-list {
+        list-style: none;
+        padding: 0;
+        margin: 0.5rem 0 0;
+        font-size: 0.9rem;
+        color: #475569;
+    }
+    .meta-list li { margin-bottom: 0.25rem; }
+    .screenshot {
+        display: block;
+        width: 100%;
+        background: #0f172a;
+    }
+    .screenshot img {
+        display: block;
+        width: 100%;
+        height: auto;
+    }
+    .details {
+        padding: 1.2rem;
+        display: grid;
+        gap: 1rem;
+    }
+    .technologies {
+        background: #f1f5f9;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+    .technologies span {
+        background: #fff;
+        border-radius: 999px;
+        padding: 0.2rem 0.65rem;
+        font-size: 0.85rem;
+        box-shadow: 0 2px 4px rgba(15, 23, 42, 0.08);
+    }
+    details {
+        background: #f8fafc;
+        border-radius: 10px;
+        padding: 0.75rem 1rem;
+    }
+    details summary {
+        font-weight: 600;
+        cursor: pointer;
+        margin: -0.75rem -1rem 0.5rem;
+        padding: 0.75rem 1rem;
+    }
+    table.headers {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.85rem;
+    }
+    table.headers th, table.headers td {
+        text-align: left;
+        padding: 0.3rem 0.4rem;
+    }
+    table.headers tr:nth-child(odd) { background: rgba(148, 163, 184, 0.1); }
+    .error {
+        background: rgba(220, 38, 38, 0.12);
+        color: #b91c1c;
+        border-left: 4px solid #dc2626;
+        padding: 0.75rem 1rem;
+        border-radius: 0 10px 10px 0;
+        margin: 1rem 1.2rem 1.2rem;
+    }
+    .no-results {
+        grid-column: 1 / -1;
+        text-align: center;
+        padding: 2rem;
+        color: #64748b;
+        font-size: 1rem;
+    }
+    @media (max-width: 720px) {
+        header { padding: 1.5rem 1rem; }
+        main { padding: 1rem; }
+        .filter-bar { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>URL Screener – Aggregate Dashboard</h1>
+    <div class="meta">Dynamically loaded from <span id="report-count">0</span> report folder(s) &middot; <span id="total-urls">0</span> total URLs</div>
+  </header>
+  <main>
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <div>Loading reports…</div>
+    </div>
+
+    <section id="content" hidden>
+      <section class="summary">
+        <div class="card">
+          <strong>Report folders</strong>
+          <div id="summary-folders">0</div>
+        </div>
+        <div class="card">
+          <strong>Total URLs</strong>
+          <div id="summary-total">0</div>
+        </div>
+        <div class="card">
+          <strong>Successful</strong>
+          <div id="summary-successes">0</div>
+        </div>
+        <div class="card">
+          <strong>Failed</strong>
+          <div id="summary-failures">0</div>
+        </div>
+      </section>
+
+      <!-- ── Filter bar ── -->
+      <div class="filter-bar" role="search" aria-label="Filter results">
+        <div class="filter-group">
+          <label for="filter-status">Status code</label>
+          <select id="filter-status">
+            <option value="">All statuses</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="filter-server">Server</label>
+          <select id="filter-server">
+            <option value="">All servers</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="filter-tech">Technology</label>
+          <select id="filter-tech">
+            <option value="">All technologies</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
+          <label for="filter-report">Report folder</label>
+          <select id="filter-report">
+            <option value="">All folders</option>
+          </select>
+        </div>
+
+        <div class="filter-actions">
+          <button id="reset-btn" type="button">Reset</button>
+          <button id="refresh-btn" class="refresh-btn" type="button">&#x21bb; Reload</button>
+          <span id="visible-count"></span>
+        </div>
+      </div>
+      <!-- ── / Filter bar ── -->
+
+      <section class="grid" id="results-grid"></section>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var MANIFEST = 'reports.json';
+      var loadingEl  = document.getElementById('loading');
+      var contentEl  = document.getElementById('content');
+      var gridEl     = document.getElementById('results-grid');
+
+      var selStatus = document.getElementById('filter-status');
+      var selServer = document.getElementById('filter-server');
+      var selTech   = document.getElementById('filter-tech');
+      var selReport = document.getElementById('filter-report');
+      var resetBtn  = document.getElementById('reset-btn');
+      var refreshBtn= document.getElementById('refresh-btn');
+      var countEl   = document.getElementById('visible-count');
+      var reportCountEl = document.getElementById('report-count');
+      var totalUrlsEl   = document.getElementById('total-urls');
+      var summaryFoldersEl = document.getElementById('summary-folders');
+      var summaryTotalEl   = document.getElementById('summary-total');
+      var summarySuccessesEl = document.getElementById('summary-successes');
+      var summaryFailuresEl  = document.getElementById('summary-failures');
+
+      var allCards = [];
+
+      function escapeHtml(str) {
+        var div = document.createElement('div');
+        div.appendChild(document.createTextNode(str));
+        return div.innerHTML;
+      }
+
+      function renderCards(cards) {
+        gridEl.innerHTML = '';
+        cards.forEach(function (card) {
+          var article = document.createElement('article');
+          article.className = 'result';
+          article.id = 'card-' + card.uid;
+          article.dataset.status = card.status || 'error';
+          article.dataset.server = (card.server || '').toLowerCase();
+          article.dataset.technologies = (card.technologies || []).join(',').toLowerCase();
+          article.dataset.reportFolder = card.reportFolder.toLowerCase();
+
+          var headerHtml = '<header>';
+          headerHtml += '<div class="report-badge">' + escapeHtml(card.reportFolder) + '</div>';
+          headerHtml += '<h2><a href="' + escapeHtml(card.finalUrl || card.normalisedUrl) + '" target="_blank">' + escapeHtml(card.originalUrl) + '</a></h2>';
+          headerHtml += '<div class="status">';
+          if (card.status) headerHtml += '<span>Status ' + card.status + '</span>';
+          if (card.responseTime != null) headerHtml += ' &#x23F1; ' + card.responseTime.toFixed(2) + ' s';
+          headerHtml += '</div>';
+          headerHtml += '<ul class="meta-list">';
+          if (card.finalUrl && card.finalUrl !== card.normalisedUrl) headerHtml += '<li>Final URL: ' + escapeHtml(card.finalUrl) + '</li>';
+          headerHtml += '<li>Normalised: ' + escapeHtml(card.normalisedUrl) + '</li>';
+          headerHtml += '</ul>';
+          headerHtml += '</header>';
+          article.innerHTML = headerHtml;
+
+          if (card.screenshotPath) {
+            var screenshotDiv = document.createElement('div');
+            screenshotDiv.className = 'screenshot';
+            var img = document.createElement('img');
+            img.src = card.reportFolder + '/' + card.screenshotPath;
+            img.alt = 'Screenshot of ' + card.originalUrl;
+            img.loading = 'lazy';
+            screenshotDiv.appendChild(img);
+            article.appendChild(screenshotDiv);
+          }
+
+          if (card.error) {
+            var errorDiv = document.createElement('div');
+            errorDiv.className = 'error';
+            errorDiv.textContent = '\u26A0\uFE0F ' + card.error;
+            article.appendChild(errorDiv);
+          }
+
+          var detailsDiv = document.createElement('div');
+          detailsDiv.className = 'details';
+
+          if (card.technologies && card.technologies.length > 0) {
+            var techSection = document.createElement('div');
+            var techStrong = document.createElement('strong');
+            techStrong.textContent = 'Detected technologies';
+            techSection.appendChild(techStrong);
+            techSection.appendChild(document.createElement('br'));
+            var techContainer = document.createElement('div');
+            techContainer.className = 'technologies';
+            card.technologies.forEach(function (tech) {
+              var span = document.createElement('span');
+              span.textContent = tech;
+              techContainer.appendChild(span);
+            });
+            techSection.appendChild(techContainer);
+            detailsDiv.appendChild(techSection);
+          }
+
+          if (card.headers && Object.keys(card.headers).length > 0) {
+            var details = document.createElement('details');
+            var summary = document.createElement('summary');
+            summary.textContent = 'Response headers';
+            details.appendChild(summary);
+            var table = document.createElement('table');
+            table.className = 'headers';
+            var tbody = document.createElement('tbody');
+            var headerKeys = Object.keys(card.headers).sort();
+            headerKeys.forEach(function (key) {
+              var tr = document.createElement('tr');
+              var th = document.createElement('th');
+              th.textContent = key;
+              var td = document.createElement('td');
+              td.textContent = card.headers[key];
+              tr.appendChild(th);
+              tr.appendChild(td);
+              tbody.appendChild(tr);
+            });
+            table.appendChild(tbody);
+            details.appendChild(table);
+            detailsDiv.appendChild(details);
+          }
+
+          article.appendChild(detailsDiv);
+
+          var noResults = document.getElementById('no-results');
+          if (noResults) {
+            gridEl.appendChild(noResults);
+          }
+          gridEl.appendChild(article);
+        });
+      }
+
+      function populateFilterOptions() {
+        var statusSet = new Set();
+        var serverSet = new Set();
+        var techSet   = new Set();
+        var reportSet = new Set();
+
+        allCards.forEach(function (card) {
+          statusSet.add(card.status || 'error');
+          serverSet.add(card.server || '');
+          (card.technologies || []).forEach(function (t) { techSet.add(t); });
+          reportSet.add(card.reportFolder);
+        });
+
+        function setOptions(sel, values, emptyLabel) {
+          sel.innerHTML = '';
+          var optAll = document.createElement('option');
+          optAll.value = '';
+          optAll.textContent = emptyLabel;
+          sel.appendChild(optAll);
+          var sorted = Array.from(values).sort(function (a, b) { return a.toLowerCase().localeCompare(b.toLowerCase()); });
+          sorted.forEach(function (v) {
+            if (!v) return;
+            var opt = document.createElement('option');
+            opt.value = v;
+            opt.textContent = v;
+            sel.appendChild(opt);
+          });
+          // add "error" option if status set has it
+          if (sel === selStatus && values.has('error')) {
+            var optErr = document.createElement('option');
+            optErr.value = 'error';
+            optErr.textContent = 'Error / no response';
+            sel.appendChild(optErr);
+          }
+        }
+
+        setOptions(selStatus, statusSet, 'All statuses');
+        setOptions(selServer, serverSet, 'All servers');
+        setOptions(selTech, techSet, 'All technologies');
+        setOptions(selReport, reportSet, 'All folders');
+      }
+
+      function applyFilters() {
+        var status = selStatus.value;
+        var server = selServer.value.toLowerCase();
+        var tech   = selTech.value.toLowerCase();
+        var report = selReport.value.toLowerCase();
+        var visible = 0;
+
+        allCards.forEach(function (card) {
+          var match = true;
+          if (status && (card.status || 'error') !== status) match = false;
+          if (server && (card.server || '').toLowerCase().indexOf(server) === -1) match = false;
+          if (tech) {
+            var techs = (card.technologies || []).join(',').toLowerCase();
+            if (techs.indexOf(tech) === -1) match = false;
+          }
+          if (report && card.reportFolder.toLowerCase().indexOf(report) === -1) match = false;
+
+          var el = document.getElementById('card-' + card.uid);
+          if (el) {
+            el.hidden = !match;
+            if (match) visible++;
+          }
+        });
+
+        countEl.textContent = visible + ' of ' + allCards.length + ' shown';
+        var noResults = document.getElementById('no-results');
+        if (!noResults) {
+          noResults = document.createElement('p');
+          noResults.className = 'no-results';
+          noResults.id = 'no-results';
+          noResults.textContent = 'No results match the selected filters.';
+          gridEl.appendChild(noResults);
+        }
+        noResults.hidden = visible > 0;
+      }
+
+      function resetFilters() {
+        selStatus.value = '';
+        selServer.value = '';
+        selTech.value   = '';
+        selReport.value = '';
+        applyFilters();
+      }
+
+      function updateSummary() {
+        var total = allCards.length;
+        var successes = 0;
+        var failures = 0;
+        allCards.forEach(function (c) {
+          if (c.error) failures++;
+          else successes++;
+        });
+        var folderSet = new Set(allCards.map(function (c) { return c.reportFolder; }));
+
+        reportCountEl.textContent = folderSet.size;
+        totalUrlsEl.textContent = total;
+        summaryFoldersEl.textContent = folderSet.size;
+        summaryTotalEl.textContent = total;
+        summarySuccessesEl.textContent = successes;
+        summaryFailuresEl.textContent = failures;
+      }
+
+      function loadAll() {
+        loadingEl.hidden = false;
+        contentEl.hidden = true;
+        gridEl.innerHTML = '';
+        allCards = [];
+
+        fetch(MANIFEST)
+          .then(function (r) {
+            if (!r.ok) throw new Error('Failed to load ' + MANIFEST + ' (HTTP ' + r.status + ')');
+            return r.json();
+          })
+          .then(function (manifest) {
+            var folders = manifest.reports || [];
+            if (folders.length === 0) throw new Error('No report folders found in manifest.');
+
+            var fetches = folders.map(function (folder) {
+              return fetch(folder + '/data.json')
+                .then(function (r) {
+                  if (!r.ok) throw new Error('Failed to load ' + folder + '/data.json (HTTP ' + r.status + ')');
+                  return r.json();
+                })
+                .then(function (data) {
+                  var results = data.results || [];
+                  var uidCounter = 0;
+                  results.forEach(function (item) {
+                    allCards.push({
+                      uid: 'uid-' + folder + '-' + (uidCounter++),
+                      reportFolder: folder,
+                      originalUrl: item.original_url,
+                      normalisedUrl: item.normalised_url,
+                      finalUrl: item.final_url,
+                      status: item.status ? String(item.status) : null,
+                      responseTime: item.response_time,
+                      headers: item.headers || {},
+                      server: item.server || '',
+                      technologies: item.technologies || [],
+                      screenshotPath: item.screenshot_path || null,
+                      error: item.error || null,
+                    });
+                  });
+                })
+                .catch(function (err) {
+                  console.warn('Skipping folder ' + folder + ': ' + err.message);
+                });
+            });
+
+            return Promise.all(fetches);
+          })
+          .then(function () {
+            if (allCards.length === 0) throw new Error('No results loaded from any report folder.');
+            renderCards(allCards);
+            populateFilterOptions();
+            updateSummary();
+            applyFilters();
+            loadingEl.hidden = true;
+            contentEl.hidden = false;
+          })
+          .catch(function (err) {
+            loadingEl.innerHTML = '<p style="color:#b91c1c;">Error: ' + escapeHtml(err.message) + '</p>' +
+              '<p style="font-size:0.9rem;color:#64748b;margin-top:1rem;">' +
+              'Make sure you are viewing through an HTTP server, e.g.:<br>' +
+              '<code style="background:#f1f5f9;padding:0.3rem 0.6rem;border-radius:6px;">python3 -m http.server 8000</code>' +
+              '</p>';
+          });
+      }
+
+      selStatus.addEventListener('change', applyFilters);
+      selServer.addEventListener('change', applyFilters);
+      selTech.addEventListener('change', applyFilters);
+      selReport.addEventListener('change', applyFilters);
+      resetBtn.addEventListener('click', resetFilters);
+      refreshBtn.addEventListener('click', loadAll);
+
+      loadAll();
+    })();
+  </script>
+</body>
+</html>
+"""
+
+
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -848,6 +1485,94 @@ def render_report(
     output_path.write_text(html, encoding="utf-8")
 
 
+def write_data_json(
+    reports: Sequence[PageReport],
+    output_path: Path,
+    input_file: Path,
+    concurrency: int,
+) -> None:
+    """Write a machine-readable data.json alongside report.html."""
+    successes = sum(1 for report in reports if not report.has_error)
+    failures = len(reports) - successes
+    response_times = [r.response_time for r in reports if r.response_time]
+    avg_response_time = sum(response_times) / len(response_times) if response_times else 0.0
+
+    safe_reports = []
+    for report in reports:
+        safe_headers = dict(sorted(report.headers.items()))
+        screenshot_rel = None
+        if report.screenshot_path:
+            try:
+                screenshot_rel = report.screenshot_path.relative_to(output_path.parent)
+            except ValueError:
+                screenshot_rel = report.screenshot_path
+        safe_reports.append(
+            {
+                "original_url": report.original_url,
+                "normalised_url": report.normalised_url,
+                "final_url": report.final_url,
+                "status": report.status,
+                "response_time": report.response_time,
+                "headers": safe_headers,
+                "server": report.headers.get("server", ""),
+                "technologies": report.technologies,
+                "screenshot_path": str(screenshot_rel) if screenshot_rel else None,
+                "error": report.error,
+            }
+        )
+
+    data = {
+        "generated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total": len(reports),
+        "successes": successes,
+        "failures": failures,
+        "avg_response_time": f"{avg_response_time:.2f}",
+        "concurrency": concurrency,
+        "input_file": str(input_file),
+        "output_dir": str(output_path.parent.resolve()),
+        "results": safe_reports,
+    }
+
+    data_path = output_path.parent / "data.json"
+    data_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    LOGGER.info("Data written to %s", data_path)
+
+
+def update_reports_manifest(output_dir: Path) -> None:
+    """Add *output_dir* to the aggregate reports.json manifest.
+
+    The manifest lives in the parent of *output_dir* so it can list sibling
+    folders.  Each entry is just the folder basename.
+    """
+    manifest_dir = output_dir.parent
+    manifest_path = manifest_dir / "reports.json"
+
+    folder_name = output_dir.name
+    known: List[str] = []
+    if manifest_path.exists():
+        try:
+            known = json.loads(manifest_path.read_text(encoding="utf-8")).get("reports", [])
+        except (json.JSONDecodeError, Exception):
+            known = []
+
+    if folder_name not in known:
+        known.append(folder_name)
+        known.sort()
+
+    manifest_path.write_text(
+        json.dumps({"reports": known}, indent=2),
+        encoding="utf-8",
+    )
+    LOGGER.info("Manifest updated at %s", manifest_path)
+
+
+def generate_main_html(output_dir: Path) -> None:
+    """Write main.html into the parent of *output_dir*."""
+    main_path = output_dir.parent / "main.html"
+    main_path.write_text(MAIN_HTML_TEMPLATE, encoding="utf-8")
+    LOGGER.info("Aggregate dashboard written to %s", main_path)
+
+
 def write_json_report(path: Path, reports: Sequence[PageReport]) -> None:
     serialisable = [
         {
@@ -945,6 +1670,13 @@ async def run(argv: Optional[Sequence[str]] = None) -> int:
                 await playwright.stop()
 
     render_report(reports, output_path, args.url_file, args.concurrency)
+
+    # ── Write machine-readable data for the aggregate dashboard ──
+    write_data_json(reports, output_path, args.url_file, args.concurrency)
+    update_reports_manifest(output_dir)
+    generate_main_html(output_dir)
+    # ─────────────────────────────────────────────────────────────
+
     if args.json:
         write_json_report(args.json, reports)
 
